@@ -4,7 +4,7 @@
  * born-on: Wed Jan 3 2018
  * creator: Eric L. Hernes
  *
- * C++ header interface for mdns querry and discovery requests/responses
+ * C++ header interface for mdns query and discovery requests/responses
  *
  */
 
@@ -44,10 +44,10 @@ namespace mdns_entry {
 using mdns_entrytype = mdns_entry::type;
 
 struct MdnsRecord {
-    std::string etype; // answer, authority, additional
-    unsigned rtype; // PTR, SRV, A, AAAA, TEXT
-    std::string name;
+    mdns_entry::type etype;
+    mdns_record::type rtype;
     std::string ip;
+    std::string data;
 };
 
 using mdns_record_callback_fn = std::function<int(const struct sockaddr* from, mdns_entrytype entry, uint16_t type,
@@ -65,7 +65,6 @@ class MdnsRR {
     bool query(int ms, mdns_recordtype type, const std::string &name);
 
     bool responses(std::vector<MdnsRecord> &v);
-
 protected:
     bool waitForReplies(int sec, uint16_t tid, mdns_recv_fn recv, mdns_record_callback_fn cb);
     int onMdnsRecord(const struct sockaddr* from, mdns_entrytype entry, uint16_t type, uint16_t rclass,
@@ -74,6 +73,7 @@ protected:
     int m_4sock;
     int m_6sock;
     uint16_t m_tid;
+    std::vector<MdnsRecord> m_records;
 };
 
 /*

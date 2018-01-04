@@ -98,4 +98,4 @@ struct sockaddr_in6* mdns_record_parse_aaaa(const uint8_t* buffer, size_t size, 
 
 size_t mdns_record_parse_txt(const uint8_t* buffer, size_t size, size_t offset, size_t length,
                              mdns_record_txt_t* records, size_t capacity);
-
+/* end: mdns_c.h */

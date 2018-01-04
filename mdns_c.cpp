@@ -719,3 +719,5 @@ mdns_record_parse_txt(const uint8_t* buffer, size_t size, size_t offset, size_t 
 
 	return parsed;	
 }
+
+/* end: mdns_c.c */
