@@ -24,7 +24,8 @@
 #define MDNS_STRING_CONST(s) (s), (sizeof((s))-1)
 #define MDNS_STRING_FORMAT(s) (int)((s).length), s.str
 
-using mdns_record_callback_fn = std::function<int(const struct sockaddr* from, mdns_entrytype entry, uint16_t type,
+using mdns_record_callback_fn = std::function<int(const struct sockaddr* from, mdns_string_t &question,
+                                                  mdns_entrytype entry, uint16_t type,
                                                   uint16_t rclass, uint32_t ttl, const uint8_t* data,
                                                   size_t size, size_t offset, size_t length)>;
 
@@ -94,7 +95,7 @@ struct sockaddr_in* mdns_record_parse_a(const uint8_t* buffer, size_t size, size
                                         struct sockaddr_in* addr);
 
 struct sockaddr_in6* mdns_record_parse_aaaa(const uint8_t* buffer, size_t size, size_t offset, size_t length,
-                                            struct sockaddr_in6* addr);
+                                            mdns_string_t *name, struct sockaddr_in6* addr);
 
 size_t mdns_record_parse_txt(const uint8_t* buffer, size_t size, size_t offset, size_t length,
                              mdns_record_txt_t* records, size_t capacity);

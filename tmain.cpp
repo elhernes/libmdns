@@ -82,7 +82,7 @@ main(int ac, char **av) {
     std::vector<MdnsRecord> rsp;
     mdns.responses(rsp);
     for(auto r : rsp) {
-        printf("%s/%d %s\n", r.ip.c_str(), r.rtype, r.data.c_str());
+        printf("%s %s? %s\n", r.ip.c_str(), r.question.c_str(), r.data.c_str());
     }
 
     return 0;

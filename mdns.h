@@ -44,13 +44,15 @@ namespace mdns_entry {
 using mdns_entrytype = mdns_entry::type;
 
 struct MdnsRecord {
+    std::string question;
     mdns_entry::type etype;
     mdns_record::type rtype;
     std::string ip;
     std::string data;
 };
 
-using mdns_record_callback_fn = std::function<int(const struct sockaddr* from, mdns_entrytype entry, uint16_t type,
+using mdns_record_callback_fn = std::function<int(const struct sockaddr* from, struct mdns_string_t &question,
+                                                  mdns_entrytype entry, uint16_t type,
                                                   uint16_t rclass, uint32_t ttl, const uint8_t* data,
                                                   size_t size, size_t offset, size_t length)>;
 using mdns_recv_fn = std::function<int(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
@@ -67,8 +69,8 @@ class MdnsRR {
     bool responses(std::vector<MdnsRecord> &v);
 protected:
     bool waitForReplies(int sec, uint16_t tid, mdns_recv_fn recv, mdns_record_callback_fn cb);
-    int onMdnsRecord(const struct sockaddr* from, mdns_entrytype entry, uint16_t type, uint16_t rclass,
-                     uint32_t ttl, const uint8_t* data, size_t size, size_t offset, size_t length);
+    int onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry, uint16_t type,
+                     uint16_t rclass, uint32_t ttl, const uint8_t* data, size_t size, size_t offset, size_t length);
     
     int m_4sock;
     int m_6sock;
