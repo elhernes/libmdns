@@ -25,6 +25,44 @@
 #include "mdns.h"    // for mdns_recordtype, mdns_entrytype
 #include "mdns_c.h"
 
+typedef enum {
+	kDNSFlag0_QR_Mask     = 0x80,		// Query or response?
+	kDNSFlag0_QR__Query    = 0x00,
+	kDNSFlag0_QR__Response = 0x80,
+	
+	kDNSFlag0_OP_Mask     = 0x78,		// Operation type
+	kDNSFlag0_OP__StdQuery = 0x00,
+	kDNSFlag0_OP__Iquery   = 0x08,
+	kDNSFlag0_OP__Status   = 0x10,
+	kDNSFlag0_OP__Unused3  = 0x18,
+	kDNSFlag0_OP__Notify   = 0x20,
+	kDNSFlag0_OP__Update   = 0x28,
+	
+	kDNSFlag0_QROP_Mask   = kDNSFlag0_QR_Mask | kDNSFlag0_OP_Mask,
+	
+	kDNSFlag0_AA          = 0x04,		// Authoritative Answer?
+	kDNSFlag0_TC          = 0x02,		// Truncated?
+	kDNSFlag0_RD          = 0x01,		// Recursion Desired?
+	kDNSFlag1_RA          = 0x80,		// Recursion Available?
+	
+	kDNSFlag1_Zero        = 0x40,		// Reserved; must be zero
+	kDNSFlag1_AD          = 0x20,		// Authentic Data [RFC 2535]
+	kDNSFlag1_CD          = 0x10,		// Checking Disabled [RFC 2535]
+
+	kDNSFlag1_RC          = 0x0F,		// Response code
+	kDNSFlag1_RC_NoErr    = 0x00,
+	kDNSFlag1_RC_FmtErr   = 0x01,
+	kDNSFlag1_RC_SrvErr   = 0x02,
+	kDNSFlag1_RC_NXDomain = 0x03,
+	kDNSFlag1_RC_NotImpl  = 0x04,
+	kDNSFlag1_RC_Refused  = 0x05,
+	kDNSFlag1_RC_YXDomain = 0x06,
+	kDNSFlag1_RC_YXRRSet  = 0x07,
+	kDNSFlag1_RC_NXRRSet  = 0x08,
+	kDNSFlag1_RC_NotAuth  = 0x09,
+	kDNSFlag1_RC_NotZone  = 0x0A
+} DNS_Flags;
+
 //
 // Here we get the scoping benefits without the casting problem
 // https://stackoverflow.com/questions/8357240/how-to-automatically-convert-strongly-typed-enum-into-int
@@ -412,94 +450,6 @@ mdns_discovery_send(int sock) {
 	return 0;
 }
 
-size_t
-mdns_discovery_recv(int sock, uint16_t /*tid*/, uint8_t* buffer, size_t capacity,
-                    mdns_record_callback_fn callback) {
-	struct sockaddr_in6 addr;
-	struct sockaddr* saddr = (struct sockaddr*)&addr;
-	memset(&addr, 0, sizeof(addr));
-	saddr->sa_family = AF_INET;
-#ifdef __APPLE__
-	saddr->sa_len = sizeof(addr);
-#endif
-	socklen_t addrlen = sizeof(addr);
-	int ret = recvfrom(sock, buffer, capacity, 0, saddr, &addrlen);
-	if (ret <= 0)
-		return 0;
-
-	size_t data_size = (size_t)ret;
-	size_t records = 0;
-	uint16_t* data = (uint16_t*)buffer;
-
-	uint16_t transaction_id = ntohs(*data++);
-	uint16_t flags          = ntohs(*data++);
-	uint16_t questions      = ntohs(*data++);
-	uint16_t answer_rrs     = ntohs(*data++);
-	uint16_t authority_rrs  = ntohs(*data++);
-	uint16_t additional_rrs = ntohs(*data++);
-
-	if (transaction_id || (flags != 0x8400))
-		return 0; //Not a reply to our question
-
-	if (questions > 1)
-		return 0;
-
-	int i;
-	for (i = 0; i < questions; ++i) {
-		size_t ofs = (size_t)((char*)data - (char*)buffer);
-		size_t verify_ofs = 12;
-		//Verify it's our question, _services._dns-sd._udp.local.
-		if (!mdns_string_equal(buffer, data_size, &ofs,
-		                       mdns_services_query, sizeof(mdns_services_query), &verify_ofs))
-			return 0;
-		data = (uint16_t*)(buffer + ofs);
-
-		uint16_t type = ntohs(*data++);
-		uint16_t rclass = ntohs(*data++);
-
-		//Make sure we get a reply based on our PTR question for class IN
-		if ((type != mdns_recordtype::PTR) || ((rclass & 0x7FFF) != mdns_class::IN))
-			return 0;
-	}
-
-    // XXX-ELH: really should use the question section parsed above,
-    //          but since we already compard and these are equal, just cheat.
-    mdns_string_t sq = {
-        "_services._dns-sd._udp.local.", sizeof(mdns_services_query)
-    };
-
-	int do_callback = 1;
-	for (i = 0; i < answer_rrs; ++i) {
-		size_t ofs = (size_t)((char*)data - (char*)buffer);
-		size_t verify_ofs = 12;
-		//Verify it's an answer to our question, _services._dns-sd._udp.local.
-		int is_answer = mdns_string_equal(buffer, data_size, &ofs,
-		                                  mdns_services_query, sizeof(mdns_services_query), &verify_ofs);
-		data = (uint16_t*)(buffer + ofs);
-
-		uint16_t type = ntohs(*data++);
-		uint16_t rclass = ntohs(*data++);
-		uint32_t ttl = ntohl(*(uint32_t*)(uint8_t*)data); data += 2;
-		uint16_t length = ntohs(*data++);
-
-		if (is_answer && do_callback) {
-            size_t offset = ((uint8_t*)data)-buffer;
-			++records;
-			if (callback(saddr, sq, mdns_entrytype::ANSWER, type, rclass, ttl, buffer, capacity, offset, length))
-				do_callback = 0;
-		}
-		data = (uint16_t*)((char*)data + length);
-	}
-
-	size_t offset = (size_t)((char*)data - (char*)buffer);
-	records += mdns_records_parse(saddr, sq, buffer, data_size, &offset,
-	                              mdns_entrytype::AUTHORITY, authority_rrs, callback);
-	records += mdns_records_parse(saddr, sq, buffer, data_size, &offset,
-	                              mdns_entrytype::ADDITIONAL, additional_rrs, callback);
-
-	return records;
-}
-
 int
 mdns_query_send(int sock, uint16_t tid, mdns_recordtype type, const char* name, size_t length) {
     size_t capacity=2048; // 17 + length
@@ -567,8 +517,8 @@ mdns_query_send(int sock, uint16_t tid, mdns_recordtype type, const char* name, 
 }
 
 size_t
-mdns_query_recv(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
-                mdns_record_callback_fn callback) {
+mdns_recv(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
+          mdns_record_callback_fn callback) {
 	struct sockaddr_in6 addr;
 	struct sockaddr* saddr = (struct sockaddr*)&addr;
 	memset(&addr, 0, sizeof(addr));
@@ -577,7 +527,7 @@ mdns_query_recv(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
 	saddr->sa_len = sizeof(addr);
 #endif
 	socklen_t addrlen = sizeof(addr);
-	int ret = recvfrom(sock, buffer, capacity, 0, (struct sockaddr*)saddr, &addrlen);
+	int ret = recvfrom(sock, buffer, capacity, 0, saddr, &addrlen);
 	if (ret <= 0)
 		return 0;
 
@@ -585,45 +535,80 @@ mdns_query_recv(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
 	uint16_t* data = (uint16_t*)buffer;
 
 	uint16_t transaction_id = ntohs(*data++);
-	++data;// uint16_t flags = ntohs(*data++);
+	uint16_t flags          = ntohs(*data++);
 	uint16_t questions      = ntohs(*data++);
 	uint16_t answer_rrs     = ntohs(*data++);
 	uint16_t authority_rrs  = ntohs(*data++);
 	uint16_t additional_rrs = ntohs(*data++);
 
-	if ((tid!=0xffff) && (transaction_id != tid)) {// || (flags != 0x8400))
-        printf("%s: not my answer (tid 0x%04x) (0x%04x)\n", __func__, tid, transaction_id);
+    // flags=8400 => response
+	if ( /*(transaction_id != tid) ||*/ (flags != 0x8400)) {
+        printf("%s: not my answer (tid 0x%04x ? 0x%04x) (flags 0x%04x)\n", __func__, tid, transaction_id, flags);
 		return 0; //Not a reply to our last question
     }
 
-	if (questions > 1)
+	if (questions > 1) {
+        printf("%s: too many questions (%d) \n", __func__, questions);
 		return 0;
+    }
 
-	//Skip questions part
     mdns_string_t question;
     char qstr[256];
 	for (int i = 0; i < questions; ++i) {
 		size_t ofs = (size_t)((char*)data - (char*)buffer);
         question = mdns_string_extract(buffer, data_size, &ofs, qstr, sizeof(qstr));
-#if 0
-		if (!mdns_string_skip(buffer, data_size, &ofs))
-			return 0;
-#endif
 		data = (uint16_t*)((char*)buffer + ofs);
 		++data;
 		++data;
 	}
 
-    printf("%s: question is %.*s\n", __func__, MDNS_STRING_FORMAT(question));
 	size_t records = 0;
 	size_t offset = (size_t)((char*)data - (char*)buffer);
-	records += mdns_records_parse(saddr, question, buffer, data_size, &offset,
-	                              mdns_entrytype::ANSWER, answer_rrs, callback);
-	records += mdns_records_parse(saddr, question, buffer, data_size, &offset,
-	                              mdns_entrytype::AUTHORITY, authority_rrs, callback);
-	records += mdns_records_parse(saddr, question, buffer, data_size, &offset,
-	                              mdns_entrytype::ADDITIONAL, additional_rrs, callback);
-	return records;
+
+    size_t nAns=0, nAuth=0, nAddl=0;
+    
+    if (transaction_id==0 && false) { // discovery
+        // XXX-ELH: pasted from mdns_discovery_recv;
+        //          should be re-factored and added in to the regular answer parser
+        mdns_string_t sq = { "_services._dns-sd._udp.local.", sizeof(mdns_services_query) };
+        int do_callback = 1;
+        for (unsigned i = 0; i < answer_rrs; ++i) {
+            size_t ofs = (size_t)((char*)data - (char*)buffer);
+            size_t verify_ofs = 12;
+            //Verify it's an answer to our question, _services._dns-sd._udp.local.
+            int is_answer = mdns_string_equal(buffer, data_size, &ofs,
+                                              mdns_services_query, sizeof(mdns_services_query), &verify_ofs);
+            data = (uint16_t*)(buffer + ofs);
+
+            uint16_t type = ntohs(*data++);
+            uint16_t rclass = ntohs(*data++);
+            uint32_t ttl = ntohl(*(uint32_t*)(uint8_t*)data); data += 2;
+            uint16_t length = ntohs(*data++);
+
+            if (is_answer && do_callback) {
+                size_t offset = ((uint8_t*)data)-buffer;
+                ++records;
+                if (callback(saddr, sq, mdns_entrytype::ANSWER, type, rclass, ttl, buffer, capacity, offset, length))
+                    do_callback = 0;
+            }
+            data = (uint16_t*)((char*)data + length);
+        }
+
+    } else {
+        nAns = mdns_records_parse(saddr, question, buffer, data_size, &offset,
+                                  mdns_entrytype::ANSWER, answer_rrs, callback);
+    }
+    nAuth = mdns_records_parse(saddr, question, buffer, data_size, &offset,
+                               mdns_entrytype::AUTHORITY, authority_rrs, callback);
+	nAddl = mdns_records_parse(saddr, question, buffer, data_size, &offset,
+                               mdns_entrytype::ADDITIONAL, additional_rrs, callback);
+    records = nAns + nAuth + nAddl;
+    if (records==0) {
+        printf("%s: (ans %lu) (auth %lu) (addl %lu) (records %lu)\n", __func__,
+               nAns, nAuth, nAddl, records);
+        hexdump(0, buffer, data_size);
+    }
+    return records;
 }
 
 mdns_string_t

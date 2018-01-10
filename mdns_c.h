@@ -64,16 +64,13 @@ void mdns_socket_close(int sock);
 
 int mdns_discovery_send(int sock);
 
-size_t mdns_discovery_recv(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
-                           mdns_record_callback_fn callback);
-
 int mdns_query_send(int sock, uint16_t tid, mdns_recordtype type, const char* name, size_t length);
+
 inline int mdns_query_send(int sock, uint16_t tid, mdns_recordtype type, const std::string &name) {
     return mdns_query_send(sock, tid, type, name.c_str(), name.size());
 }
 
-size_t mdns_query_recv(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
-                       mdns_record_callback_fn callback);
+size_t mdns_recv(int sock, uint16_t tid, uint8_t* buffer, size_t capacity, mdns_record_callback_fn callback);
 
 mdns_string_t mdns_string_extract(const uint8_t* buffer, size_t size, size_t* offset,
                                   char* str, size_t capacity);
@@ -99,4 +96,29 @@ struct sockaddr_in6* mdns_record_parse_aaaa(const uint8_t* buffer, size_t size, 
 
 size_t mdns_record_parse_txt(const uint8_t* buffer, size_t size, size_t offset, size_t length,
                              mdns_record_txt_t* records, size_t capacity);
+
+// XXX-ELH: i don't belong here.
+static void
+hexdump(uint32_t addr, const uint8_t* data, unsigned size, FILE* fp=stdout, unsigned width=16) {
+    unsigned i;
+    if (fp == 0) {
+        fp = stderr;
+    }
+    for (unsigned offset = 0; offset < size; offset += width) {
+        fprintf(fp, "0x%08x: ", addr + offset);
+        unsigned index = std::min(size - offset, width);
+        for (i = 0; i < index; i++) {
+            fprintf(fp, "%02x ", data[offset + i]);
+        }
+
+        for (unsigned spacer = index; spacer < width; spacer++)
+            fprintf(fp, "   ");
+        fprintf(fp, ": ");
+        for (i = 0; i < index; i++) {
+            fprintf(fp, "%c", (((data[offset + i] > 31) && (data[offset + i] < 127)) ? data[offset + i] : '.'));
+        }
+        fprintf(fp, "\n");
+    }
+}
+
 /* end: mdns_c.h */

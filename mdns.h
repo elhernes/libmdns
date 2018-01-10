@@ -55,27 +55,25 @@ using mdns_record_callback_fn = std::function<int(const struct sockaddr* from, s
                                                   mdns_entrytype entry, uint16_t type,
                                                   uint16_t rclass, uint32_t ttl, const uint8_t* data,
                                                   size_t size, size_t offset, size_t length)>;
-using mdns_recv_fn = std::function<int(int sock, uint16_t tid, uint8_t* buffer, size_t capacity,
-                                       mdns_record_callback_fn callback)>;
-
 class MdnsRR {
  public:
     MdnsRR(const std::string &netif="");
     virtual ~MdnsRR();
 
-    bool discover(int ms);
-    bool query(int ms, mdns_recordtype type, const std::string &name);
+    bool discover();
+    bool query(mdns_recordtype type, const std::string &name);
+    bool responses(std::vector<MdnsRecord> &v, int msec);
 
-    bool responses(std::vector<MdnsRecord> &v);
 protected:
-    bool waitForReplies(int sec, uint16_t tid, mdns_recv_fn recv, mdns_record_callback_fn cb);
-    int onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry, uint16_t type,
-                     uint16_t rclass, uint32_t ttl, const uint8_t* data, size_t size, size_t offset, size_t length);
-    
+    bool waitForReplies(int msec, mdns_record_callback_fn cb);
+    static int onMdnsRecord(MdnsRecord &rr, const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry,
+                            uint16_t type, uint16_t rclass, uint32_t ttl, const uint8_t* data, size_t size,
+                            size_t offset, size_t length);
+
+protected:
     int m_4sock;
     int m_6sock;
     uint16_t m_tid;
-    std::vector<MdnsRecord> m_records;
 };
 
 /*

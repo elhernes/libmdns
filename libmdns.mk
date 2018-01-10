@@ -10,6 +10,8 @@ SRCS=mdns_c.cpp mdns.cpp
 
 DEFINES+=
 
+CXXFLAGS-dey=-pthread
+
 include sw.lib.mk
 
 #

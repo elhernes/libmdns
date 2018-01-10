@@ -1,5 +1,5 @@
 ########################################
-## file: /Volumes/Data/github/libmdns/tmain.mk
+## file: /Volumes/Data/github/libmdns/tmdns.mk
 ## born-on: Thu Jan  4 08:55:30 2018
 ## creator: Elh
 ##
@@ -7,7 +7,10 @@
 ##
 
 PROG=tmdns
-SRCS=tmain.cpp
+SRCS=tmdns.cpp
+
+CXXFLAGS-dey=-pthread
+LDFLAGS-dey=-pthread
 
 LIBS=mdns
 
@@ -18,6 +21,6 @@ include sw.prog.mk
 # mode: Makefile
 # mode: font-lock
 # tab-width: 8
-# compile-command: "make.rmk MK=tmain.mk"
+# compile-command: "make.rmk MK=tmdns.mk"
 # End:
 #

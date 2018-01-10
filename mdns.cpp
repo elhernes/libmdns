@@ -28,7 +28,7 @@
 #include <sstream>
 
 
-MdnsRR::MdnsRR(const std::string &netif) : m_tid(0) {
+MdnsRR::MdnsRR(const std::string &netif) : m_tid(1) { // tid=0 for discovery
     m_4sock = mdns_socket_open_ipv6();
     m_6sock = mdns_socket_open_ipv4();
     if (netif.size()>0) {
@@ -48,51 +48,44 @@ MdnsRR::~MdnsRR() {
     if (m_6sock>=0) mdns_socket_close(m_6sock);
 }
 
+
 bool
-MdnsRR::discover(int ms) {
+MdnsRR::discover() {
     bool rv=false;
     if (m_4sock>=0) rv|=mdns_discovery_send(m_4sock)==0;
     if (m_6sock>=0) rv|=mdns_discovery_send(m_6sock)==0;
-    if (rv) {
-        rv = waitForReplies(ms, 0xffff, mdns_discovery_recv,
-                            [=](const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry,
-                                uint16_t type, uint16_t rclass, uint32_t ttl, const uint8_t* data, size_t size,
-                                size_t offset, size_t length)->int {
-                                return onMdnsRecord(from, question, entry, type, rclass, ttl, data, size, offset, length);
-                            });
-    }
+    m_tid=0;
     return rv;
 }
 
 bool
-MdnsRR::query(int ms, mdns_recordtype type, const std::string &name) {
+MdnsRR::query(mdns_recordtype type, const std::string &name) {
     bool rv=false;
-    if (m_4sock>=0) {
-        rv|=mdns_query_send(m_4sock, m_tid, type, name)==0;
-    }
-    if (m_6sock>=0) {
-        rv|=mdns_query_send(m_6sock, m_tid, type, name)==0;
-    }
-    if (rv) {
-        rv = waitForReplies(ms, m_tid, mdns_query_recv,
-                            [=](const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry,
-                                uint16_t type, uint16_t rclass, uint32_t ttl, const uint8_t* data, size_t size,
-                                size_t offset, size_t length)->int {
-                                return onMdnsRecord(from, question, entry, type, rclass, ttl, data, size, offset, length);
-                            });
-    }
     m_tid++;
+    if (m_4sock>=0) rv|=mdns_query_send(m_4sock, m_tid, type, name)==0;
+    if (m_6sock>=0) rv|=mdns_query_send(m_6sock, m_tid, type, name)==0;
     return rv;
 }
 
 bool
-MdnsRR::responses(std::vector<MdnsRecord> &v) {
-    v=m_records;
-    return m_records.size()>0;
+MdnsRR::responses(std::vector<MdnsRecord> &v, int ms) {
+    bool rv=true;
+    if (rv) {
+        rv = waitForReplies(ms, [&](const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry,
+                                    uint16_t type, uint16_t rclass, uint32_t ttl, const uint8_t* data, size_t size,
+                                    size_t offset, size_t length)->int {
+                                MdnsRecord rr;
+                                auto rv= onMdnsRecord(rr, from, question, entry, type, rclass, ttl,
+                                                      data, size, offset, length);
+                                v.push_back(rr);
+                                return rv;
+                            });
+    }
+    return v.size()>0;
 }
 
 bool
-MdnsRR::waitForReplies(int msec, uint16_t tid,  mdns_recv_fn rx, mdns_record_callback_fn cb) {
+MdnsRR::waitForReplies(int msec, mdns_record_callback_fn cb) {
     bool rv=true;
     struct timeval t0, t1;
     int et = 0;
@@ -116,7 +109,7 @@ MdnsRR::waitForReplies(int msec, uint16_t tid,  mdns_recv_fn rx, mdns_record_cal
             for(unsigned i=0; i<sizeof(fds)/sizeof(fds[0]); i++) {
                 if((fds[i].revents & POLLIN)!=0) {
                     uint8_t rxbuffer[2048];
-                    rx(fds[i].fd, tid, rxbuffer, sizeof(rxbuffer), cb);
+                    mdns_recv(fds[i].fd, m_tid, rxbuffer, sizeof(rxbuffer), cb);
                 }
             }
             break;
@@ -178,42 +171,19 @@ ip_address_to_string(char* buffer, size_t capacity, const struct sockaddr* addr)
 	return ipv4_address_to_string(buffer, capacity, (const struct sockaddr_in*)addr);
 }
 
-void
-hexdump(uint32_t addr, const uint8_t* data, unsigned size, FILE* fp=stdout, unsigned width=16) {
-    unsigned i;
-    if (fp == 0) {
-        fp = stderr;
-    }
-    for (unsigned offset = 0; offset < size; offset += width) {
-        fprintf(fp, "0x%08x: ", addr + offset);
-        unsigned index = std::min(size - offset, width);
-        for (i = 0; i < index; i++) {
-            fprintf(fp, "%02x ", data[offset + i]);
-        }
-
-        for (unsigned spacer = index; spacer < width; spacer++)
-            fprintf(fp, "   ");
-        fprintf(fp, ": ");
-        for (i = 0; i < index; i++) {
-            fprintf(fp, "%c", (((data[offset + i] > 31) && (data[offset + i] < 127)) ? data[offset + i] : '.'));
-        }
-        fprintf(fp, "\n");
-    }
-}
-
 #define MDNS_STD_STRING(ms) std::string(ms.str,ms.length)
 
 int
-MdnsRR::onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry, uint16_t type,
+MdnsRR::onMdnsRecord(MdnsRecord &rr,
+                     const struct sockaddr* from, mdns_string_t &question, mdns_entrytype entry, uint16_t type,
                      uint16_t rclass, uint32_t ttl, const uint8_t* data, size_t size, size_t offset, size_t length) {
-    MdnsRecord rr;
     rr.question = MDNS_STD_STRING(question);
 
     char addrbuffer[64];
     char namebuffer[256];
     mdns_record_txt_t txtbuffer[128];
 
-	mdns_string_t fromaddrstr = ip_address_to_string(addrbuffer, sizeof(addrbuffer), from);
+    mdns_string_t fromaddrstr = ip_address_to_string(addrbuffer, sizeof(addrbuffer), from);
     rr.ip = fromaddrstr.str;
     rr.etype = (mdns_entry::type)entry;
     rr.rtype = (mdns_record::type)type;
@@ -223,13 +193,6 @@ MdnsRR::onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_
 		mdns_string_t namestr = mdns_record_parse_ptr(data, size, offset, length,
 		                                              namebuffer, sizeof(namebuffer));
         rr.data = MDNS_STD_STRING(namestr);
-        //        hexdump(0, data, size);
-#if 0
-		printf("%.*s : %s PTR %.*s type %u rclass 0x%x ttl %u length %d\n",
-		       MDNS_STRING_FORMAT(fromaddrstr), entrytype,
-		       MDNS_STRING_FORMAT(namestr), type, rclass, ttl, (int)length);
-        hexdump(0, data+offset, length);
-#endif
 	}
         break;
 
@@ -237,12 +200,6 @@ MdnsRR::onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_
 		mdns_record_srv_t srv = mdns_record_parse_srv(data, size, offset, length,
 		                                              namebuffer, sizeof(namebuffer));
         rr.data = MDNS_STD_STRING(srv.name);
-#if 0        
-        hexdump(0, data, size);
-		printf("%.*s : %s SRV %.*s priority %d weight %d port %d\n",
-		       MDNS_STRING_FORMAT(fromaddrstr), entrytype,
-		       MDNS_STRING_FORMAT(srv.name), srv.priority, srv.weight, srv.port);
-#endif
 	}
         break;
         
@@ -251,11 +208,6 @@ MdnsRR::onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_
 		mdns_record_parse_a(data, size, offset, length, &addr);
 		mdns_string_t addrstr = ipv4_address_to_string(namebuffer, sizeof(namebuffer), &addr);
         rr.data = MDNS_STD_STRING(addrstr);
-#if 0
-		printf("%.*s : %s A %.*s\n",
-		       MDNS_STRING_FORMAT(fromaddrstr), entrytype,
-		       MDNS_STRING_FORMAT(addrstr));
-#endif
 	}
         break;
 
@@ -266,14 +218,6 @@ MdnsRR::onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_
 		mdns_string_t addrstr = ipv6_address_to_string(namebuffer, sizeof(namebuffer), &addr);
         rr.data = MDNS_STD_STRING(name) + "=";
         rr.data += MDNS_STD_STRING(addrstr);
-#if 0
-        hexdump(0, data, size);
-        hexdump(1, data+offset, length);
-		printf("%.*s : AAAA %.*s=%.*s\n",
-               MDNS_STRING_FORMAT(name),
-		       MDNS_STRING_FORMAT(fromaddrstr),
-		       MDNS_STRING_FORMAT(addrstr));
-#endif
 	}
         break;
         
@@ -286,20 +230,9 @@ MdnsRR::onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_
                 rr.data += MDNS_STD_STRING(txtbuffer[itxt].key);
                 rr.data += "=";
                 rr.data += MDNS_STD_STRING(txtbuffer[itxt].value);
-#if 0
-				printf("%.*s : %s TXT %.*s = %.*s\n",
-				       MDNS_STRING_FORMAT(fromaddrstr), entrytype,
-				       MDNS_STRING_FORMAT(txtbuffer[itxt].key),
-				       MDNS_STRING_FORMAT(txtbuffer[itxt].value));
-#endif
 			}
 			else {
                 rr.data += MDNS_STD_STRING(txtbuffer[itxt].key);
-#if 0
-				printf("%.*s : %s TXT %.*s\n",
-				       MDNS_STRING_FORMAT(fromaddrstr), entrytype,
-				       MDNS_STRING_FORMAT(txtbuffer[itxt].key));
-#endif
 			}
             rr.data += "; ";
 		}
@@ -313,16 +246,9 @@ MdnsRR::onMdnsRecord(const struct sockaddr* from, mdns_string_t &question, mdns_
             ss << data[offset+i];
         }
         rr.data = ss.str();
-#if 0
-		printf("%.*s : %s type %u rclass 0x%x ttl %u length %d\n",
-		       MDNS_STRING_FORMAT(fromaddrstr), entrytype,
-		       type, rclass, ttl, (int)length);
-        hexdump(0, data+offset, length);
-#endif
 	}
     }
-    m_records.push_back(rr);
-	return 0;
+    return 0;
 }
 
 /*
