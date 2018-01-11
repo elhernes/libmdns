@@ -25,44 +25,6 @@
 #include "mdns.h"    // for mdns_recordtype, mdns_entrytype
 #include "mdns_c.h"
 
-typedef enum {
-	kDNSFlag0_QR_Mask     = 0x80,		// Query or response?
-	kDNSFlag0_QR__Query    = 0x00,
-	kDNSFlag0_QR__Response = 0x80,
-	
-	kDNSFlag0_OP_Mask     = 0x78,		// Operation type
-	kDNSFlag0_OP__StdQuery = 0x00,
-	kDNSFlag0_OP__Iquery   = 0x08,
-	kDNSFlag0_OP__Status   = 0x10,
-	kDNSFlag0_OP__Unused3  = 0x18,
-	kDNSFlag0_OP__Notify   = 0x20,
-	kDNSFlag0_OP__Update   = 0x28,
-	
-	kDNSFlag0_QROP_Mask   = kDNSFlag0_QR_Mask | kDNSFlag0_OP_Mask,
-	
-	kDNSFlag0_AA          = 0x04,		// Authoritative Answer?
-	kDNSFlag0_TC          = 0x02,		// Truncated?
-	kDNSFlag0_RD          = 0x01,		// Recursion Desired?
-	kDNSFlag1_RA          = 0x80,		// Recursion Available?
-	
-	kDNSFlag1_Zero        = 0x40,		// Reserved; must be zero
-	kDNSFlag1_AD          = 0x20,		// Authentic Data [RFC 2535]
-	kDNSFlag1_CD          = 0x10,		// Checking Disabled [RFC 2535]
-
-	kDNSFlag1_RC          = 0x0F,		// Response code
-	kDNSFlag1_RC_NoErr    = 0x00,
-	kDNSFlag1_RC_FmtErr   = 0x01,
-	kDNSFlag1_RC_SrvErr   = 0x02,
-	kDNSFlag1_RC_NXDomain = 0x03,
-	kDNSFlag1_RC_NotImpl  = 0x04,
-	kDNSFlag1_RC_Refused  = 0x05,
-	kDNSFlag1_RC_YXDomain = 0x06,
-	kDNSFlag1_RC_YXRRSet  = 0x07,
-	kDNSFlag1_RC_NXRRSet  = 0x08,
-	kDNSFlag1_RC_NotAuth  = 0x09,
-	kDNSFlag1_RC_NotZone  = 0x0A
-} DNS_Flags;
-
 //
 // Here we get the scoping benefits without the casting problem
 // https://stackoverflow.com/questions/8357240/how-to-automatically-convert-strongly-typed-enum-into-int
